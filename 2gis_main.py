@@ -1,14 +1,16 @@
-import time, re
+import time
+import openpyxl
 from playwright.sync_api import sync_playwright, Page
 from translate import Translator
 from typing import List
-
+from openpyxl import Workbook
 
 class TwoGisMapParse:
     def __init__(self, keyword: str, sity: str, max_num_firm: int):
         self.keyword = keyword  #  Ищем по ключевому слову
         self.sity = sity  # Ищем в определённом городе
         self.max_num_firm = max_num_firm  # Максимальное количество фирм
+        self.data_saving = '2gis_parse_results/data.xlsx'
 
     def eng_sity(self):
         """Переводим город на английский для удобства"""
@@ -23,16 +25,16 @@ class TwoGisMapParse:
         
         found_links = self.page.query_selector_all(link_selector)  # Ищем только видимые карточки организаций(firm)
         for count, link in enumerate(found_links):
-            if count > self.max_num_firm:  # Делаем так, чтобы кол-во не превышало желамое кол-во объявлений
+            if count  >= self.max_num_firm:  # Делаем так, чтобы кол-во не превышало желамое кол-во объявлений
                 break 
             if not link.is_visible():  # Проверяем, видим ли элемент
                 continue
             href = (link.get_attribute("href") or "")  # Находим элемент на стр., где есть /firm/
             # На всякий случай делаю ещё проверку; Ещё проверяю город, чтоб не искало в регионах
             if (href and "/firm/" in href and self.eng_sity() in href):
-                href = rf"https://2gis.ru{href}"
-                links.append(href)
-                self.__get_firm_data(url=href)
+                href = f"https://2gis.ru{href}"  # Делаем полное url
+                firm_data = self.__get_firm_data(url=href)  # Ищем все данные фирмы
+                links.append(firm_data)  # Добавляем в список, который потом пойдет в xlsx
         return links
 
     def __get_firm_data(self, url: str):
@@ -40,9 +42,11 @@ class TwoGisMapParse:
         self.page2 = self.context.new_page()  # Создаем новую страницу
         self.page2.goto(url=url)  # Переходим на неё
         
+        true_phone = "Телефон не найден"  # Если будет не найдено
+        true_site = "Нет ссылки на сайт"
+        
         # Название фирмы
-        firm_title = self.page2.title().split(',')[0]  #Отделяем: (Назв.фирмы, ул. ...) 
-        print(firm_title)
+        firm_title = self.page2.title().split(',')[0]  #Отделяем: (Назв.фирмы, ул. ...)
         
         # Номер телефона
         try:
@@ -51,11 +55,11 @@ class TwoGisMapParse:
             if phone_container:
                 # Теперь ищем телефон внутри этого контейнера
                 phone = phone_container.query_selector('a[href^="tel:"]')
-                print(phone.get_attribute("href")[4:])  # Вывожу без tel:
+                true_phone = phone.get_attribute("href")[4:]  # Вывожу без tel:
             else:
-                print("Контейнер с телефоном и кнопкой не найден")
+                true_phone = "Контейнер с телефоном и кнопкой не найден"
         except Exception as e:
-            print(f"Ошибка: {e}")
+            true_phone = f"Ошибка: {e}"
         
         # Название сайта
         site_elements = self.page2.query_selector_all('a[href^="https://link.2gis.ru/"]')  # Ищем ссылки(сайт)
@@ -64,13 +68,37 @@ class TwoGisMapParse:
             try:
                 a = list(filter(lambda i: i if ('.ru' in i or '.com' in i or '.net' in i or '.рф' in i) and
                             '@' not in i else '', site_texts))  # Фильтруем, чтоб выводилось нужное 
-                print(f"{a[0]}")
+                true_site = f"{a[0]}"
             except:
-                print(f"Нет ссылки на сайт")
+                true_site = "Нет ссылки на сайт"
                 
         self.page2.close()
+        return [url, firm_title, true_phone, true_site, '-']
 
-# TODO: Сделать запись данных в xlsx
+    def data_output_to_xlsx(self, get_firm_data):
+        '''Выводим данные в файл xlsx'''
+        # Создать новый файл (старый перезапишется)
+        wb = Workbook()
+        ws = wb.active
+        
+        # Добавить заголовки
+        headers = ["URL", "Название", "Телефон", "Сайт"]
+        for col, header in enumerate(headers, start=1):
+            ws.cell(row=1, column=col, value=header)
+
+        # Начинаем запись со второй строки (после заголовков)
+        start_row = 2
+
+        # Цикл по данным фирм
+        for firm_data in get_firm_data:  # firm_data - это список ['URL', 'Название', 'Телефон', 'Сайт']
+            # Запись каждой строки в Excel
+            for col, value in enumerate(firm_data, start=1):
+                ws.cell(row=start_row, column=col, value=value)
+            start_row += 1  # Перейти на следующую строку
+
+        # Сохранить файл
+        wb.save(self.data_saving)
+        print(f"Записано {len(get_firm_data)} строк в файл data.xlsx")
 
     def parse(self):
         """Парсинг сайта"""
@@ -83,11 +111,13 @@ class TwoGisMapParse:
             self.page.get_by_placeholder("Поиск в 2ГИС").type(text=self.keyword, delay=0.4)
             self.page.keyboard.press("Enter")  # Нажимаем Enter
             time.sleep(3)  # Задержка для загрузки страницы
-            print(self.__get_links())  # Вывод ссылок на организации
-            # for i in range(6):
-            #     self.page.click('[style="transform: rotate(-90deg);"]')  # Кликаем на кнопку перехода на след. страницу
-            time.sleep(4)
-            self.__get_links()
+            # self.page.click('[style="transform: rotate(-90deg);"]')
+            # time.sleep(3)  # Задержка для загрузки страницы
+            get_links = self.__get_links()  # Вывод ссылок на организации 
+            self.data_output_to_xlsx(get_links)
+            # self.page.click('[style="transform: rotate(-90deg);"]')  # Кликаем на кнопку перехода на след. страницу
+            # time.sleep(4)
+            # self.__get_links()
             time.sleep(180)
 
     def translate_text(self, text, from_lang="ru", to_lang="en"):
@@ -103,4 +133,4 @@ class TwoGisMapParse:
 
 
 if __name__ == "__main__":
-    TwoGisMapParse("Музеи", "Саратов", 322).parse()  # Ключевое слово, город, кол-во объявлений
+    TwoGisMapParse("Мойка", "Самара", 10).parse()  # Ключевое слово, город, кол-во объявлений
