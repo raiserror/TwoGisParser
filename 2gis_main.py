@@ -11,6 +11,7 @@ class TwoGisMapParse:
         self.sity = sity  # Ищем в определённом городе
         self.max_num_firm = max_num_firm  # Максимальное количество фирм
         self.data_saving = '2gis_parse_results/data.xlsx'
+        self.list_of_companies = []  # сюда добавляем списки из __get_firm_data, чтобы потом ввести их в xlsx
 
     def eng_sity(self):
         """Переводим город на английский для удобства"""
@@ -20,12 +21,11 @@ class TwoGisMapParse:
         """Извлекаем ссылки на организации, находящиеся на странице"""
         print("Собираем ссылки на организации с текущей страницы...")
 
-        links = []
         link_selector = 'a[href*="/firm/"]'
         
         found_links = self.page.query_selector_all(link_selector)  # Ищем только видимые карточки организаций(firm)
         for count, link in enumerate(found_links):
-            if count  >= self.max_num_firm:  # Делаем так, чтобы кол-во не превышало желамое кол-во объявлений
+            if len(self.list_of_companies)  >= self.max_num_firm:  # Делаем так, чтобы кол-во не превышало желамое кол-во объявлений
                 break 
             if not link.is_visible():  # Проверяем, видим ли элемент
                 continue
@@ -34,8 +34,7 @@ class TwoGisMapParse:
             if (href and "/firm/" in href and self.eng_sity() in href):
                 href = f"https://2gis.ru{href}"  # Делаем полное url
                 firm_data = self.__get_firm_data(url=href)  # Ищем все данные фирмы
-                links.append(firm_data)  # Добавляем в список, который потом пойдет в xlsx
-        return links
+                self.list_of_companies.append(firm_data)  # Добавляем в список, который потом пойдет в xlsx
 
     def __get_firm_data(self, url: str):
         """Берем данные фирмы: название, телефон, сайт"""
@@ -111,10 +110,11 @@ class TwoGisMapParse:
             self.page.get_by_placeholder("Поиск в 2ГИС").type(text=self.keyword, delay=0.4)
             self.page.keyboard.press("Enter")  # Нажимаем Enter
             time.sleep(3)  # Задержка для загрузки страницы
-            # self.page.click('[style="transform: rotate(-90deg);"]')
-            # time.sleep(3)  # Задержка для загрузки страницы
-            get_links = self.__get_links()  # Вывод ссылок на организации 
-            self.data_output_to_xlsx(get_links)
+            self.__get_links()  # Вывод ссылок на организации 
+            self.page.click('[style="transform: rotate(-90deg);"]')
+            time.sleep(3)  # Задержка для загрузки страницы
+            self.__get_links()  # Вывод ссылок на организации
+            self.data_output_to_xlsx(self.list_of_companies)
             # self.page.click('[style="transform: rotate(-90deg);"]')  # Кликаем на кнопку перехода на след. страницу
             # time.sleep(4)
             # self.__get_links()
