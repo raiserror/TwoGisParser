@@ -1,3 +1,4 @@
+import random
 import time
 import openpyxl
 from playwright.sync_api import sync_playwright, Page
@@ -99,11 +100,33 @@ class TwoGisMapParse:
         wb.save(self.data_saving)
         print(f"Записано {len(get_firm_data)} строк в файл data.xlsx")
 
+    def translate_text(self, text, from_lang="ru", to_lang="en"):
+        # Создаем объект Translator, указывая исходный язык и язык перевода
+        translator = Translator(from_lang=from_lang, to_lang=to_lang)
+        try:
+            # Пытаемся перевести текст
+            translated_text = translator.translate(text)
+            return translated_text  # Возвращаем переведенный текст
+        except Exception as e:
+            # Если возникает ошибка, возвращаем сообщение об ошибке
+            return f"Error: {e}"
+
+    def get_random_user_agent(self):
+        ''''''
+        user_agents = [
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36'
+        ]
+        return random.choice(user_agents)
+
     def parse(self):
         """Парсинг сайта"""
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=False)  # headless=False - без графического итерфейса
-            self.context = browser.new_context()  # По типу вкладок инкогнито
+            self.context = browser.new_context(
+                user_agent=self.get_random_user_agent()
+                )  # По типу вкладок инкогнито
             self.page = self.context.new_page()  # Новая страница, создается в контексте
             self.page.goto(f"https://2gis.ru/{self.eng_sity()}")  #  Переходим по адресу с переведенным городом
             # Ищем поле поиска, пишем туда keyword и печатаем каждую букву с промежутком времени 0.4 с
@@ -120,17 +143,6 @@ class TwoGisMapParse:
             # self.__get_links()
             time.sleep(180)
 
-    def translate_text(self, text, from_lang="ru", to_lang="en"):
-        # Создаем объект Translator, указывая исходный язык и язык перевода
-        translator = Translator(from_lang=from_lang, to_lang=to_lang)
-        try:
-            # Пытаемся перевести текст
-            translated_text = translator.translate(text)
-            return translated_text  # Возвращаем переведенный текст
-        except Exception as e:
-            # Если возникает ошибка, возвращаем сообщение об ошибке
-            return f"Error: {e}"
-
 
 if __name__ == "__main__":
-    TwoGisMapParse("Мойка", "Самара", 10).parse()  # Ключевое слово, город, кол-во объявлений
+    TwoGisMapParse("Мойка", "Самара", 22).parse()  # Ключевое слово, город, кол-во объявлений
