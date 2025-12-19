@@ -7,7 +7,8 @@ from typing import List
 from openpyxl import Workbook
 from googletrans import Translator
 from collections import deque
-import gui
+
+
 class TwoGisMapParse:
     def __init__(self, keyword: str, sity: str, max_num_firm: int):
         self.keyword = keyword  # Ищем по ключевому слову
@@ -132,7 +133,7 @@ class TwoGisMapParse:
         ]
         return random.choice(user_agents)
 
-    async def parse_main(self):
+    async def parse_main(self, update_callback=None):
         """Парсинг сайта"""
         async with async_playwright() as playwright:
             browser = await playwright.chromium.launch(headless=False)  # headless=False - без графического итерфейса

@@ -1,9 +1,17 @@
 import tkinter as tk
 import sv_ttk
 import threading
+import asyncio
 import time
 import random
 from tkinter import ttk, messagebox
+import os
+import openpyxl
+from playwright.async_api import async_playwright
+from collections import deque
+from googletrans import Translator
+from MainTwoGis import TwoGisMapParse
+
 
 class MainApplication(ttk.Frame):
     def __init__(self, parent, *args, **kwargs):
@@ -22,6 +30,11 @@ class MainApplication(ttk.Frame):
         self.pack(fill=tk.BOTH, expand=True)
         self.create_widgets() 
         self.toggle_parser_mode()
+        
+        # Для управления парсингом
+        self.is_parsing = False
+        self.parser_thread = None
+        self.parser_instance = None
             
     def interface_style(self):
         sv_ttk.set_theme("light")
@@ -228,7 +241,6 @@ class MainApplication(ttk.Frame):
         # Обновляем состояние кнопок
         self.toggle_parser_mode()
 
-    # Остальные методы остаются без изменений...
     def generate_url(self):
         """Генерация URL на основе ключевого слова и города"""
         keyword = self.keyword_var.get().strip()
@@ -269,6 +281,10 @@ class MainApplication(ttk.Frame):
             
     def run_parsing(self):
         """Запуск парсинга в зависимости от выбранного режима"""
+        if self.is_parsing:
+            messagebox.showwarning("Предупреждение", "Парсинг уже выполняется!")
+            return
+            
         if self.parser_mode_key.get() == "keyword":
             self.run_keyword_parsing()
         else:
@@ -286,57 +302,69 @@ class MainApplication(ttk.Frame):
             
         self.log_message(f"Начало парсинга по ключу: '{keyword}' в {city}, количество: {firm_count}")
         self.status_var.set(f"Парсинг по ключу: {keyword} в {city}")
-        # Здесь будет вызов реального парсера
-        self.simulate_parsing("keyword", keyword, city, firm_count)
+        
+        # Запуск асинхронного парсинга в отдельном потоке
+        self.is_parsing = True
+        self.parser_instance = TwoGisMapParse(keyword, city, firm_count)
+        self.parser_thread = threading.Thread(
+            target=self.run_async_parsing,
+            args=(self.parser_instance,),
+            daemon=True
+        )
+        self.parser_thread.start()
         
     def run_url_parsing(self):
         """Запуск парсинга по URL"""
-        url = self.url_var.get()
-        firm_count = self.firm_count_var.get()
+        # В текущей реализации поддерживается только парсинг по ключу
+        messagebox.showinfo("Информация", "Парсинг по URL в разработке. Используйте режим по ключу.")
+        return
         
-        if not url:
-            messagebox.showwarning("Предупреждение", "Введите URL для парсинга!")
-            return
-            
-        if not url.startswith(('https://2gis.ru/', 'http://2gis.ru/')):
-            messagebox.showwarning("Предупреждение", "Введите корректный URL 2ГИС!")
-            return
-            
-        self.log_message(f"Начало парсинга по URL: {url}")
-        self.status_var.set(f"Парсинг по URL: {url[:50]}...")
-        
-        # Здесь будет вызов реального парсера
-        self.simulate_parsing("url", url, firm_count)
+        # url = self.url_var.get()
+        # firm_count = self.firm_count_var.get()
+        # 
+        # if not url:
+        #     messagebox.showwarning("Предупреждение", "Введите URL для парсинга!")
+        #     return
+        #     
+        # if not url.startswith(('https://2gis.ru/', 'http://2gis.ru/')):
+        #     messagebox.showwarning("Предупреждение", "Введите корректный URL 2ГИС!")
+        #     return
+        #     
+        # self.log_message(f"Начало парсинга по URL: {url}")
+        # self.status_var.set(f"Парсинг по URL: {url[:50]}...")
 
-    def simulate_parsing(self, mode, *args):
-        """Имитация работы парсера"""
-        def parsing_thread():
-            try:
-                if mode == "keyword":
-                    keyword, city, firm_count = args
-                    for i in range(1, min(firm_count, 15) + 1):
-                        time.sleep(0.5 + random.random() * 0.5)
-                        message = f"Найдена фирма {i}: {keyword} #{i} в {city}"
-                        self.after(0, self.log_message, message)
-                    
-                    self.after(0, lambda: self.status_var.set("Парсинг по ключу завершен"))
-                    self.after(0, lambda: self.log_message(f"Найдено {min(firm_count, 15)} организаций"))
-                else:
-                    url, firm_count = args
-                    self.after(0, self.log_message, f"Анализ URL: {url}")
-                    self.after(0, lambda: self.status_var.set("Парсинг по URL завершен"))
-                    self.after(0, lambda: self.log_message(f"Обработано {min(firm_count, 20)} записей"))
-                
-                self.after(0, lambda: self.log_message("Парсинг успешно завершен!"))
-            except Exception as e:
-                self.after(0, lambda: self.log_message(f"Ошибка: {str(e)}"))
+    def run_async_parsing(self, parser_instance):
+        """Запуск асинхронного парсинга в отдельном потоке"""
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         
-        thread = threading.Thread(target=parsing_thread)
-        thread.daemon = True
-        thread.start()
+        try:
+            loop.run_until_complete(
+                parser_instance.parse_main(update_callback=self.update_gui_from_thread)
+            )
+        except Exception as e:
+            self.update_gui_from_thread(f"Ошибка при парсинге: {str(e)}")
+        finally:
+            self.update_gui_from_thread("Парсинг завершен")
+            self.is_parsing = False
+            loop.close()
+            
+    def update_gui_from_thread(self, message):
+        """Обновление GUI из потока"""
+        def update():
+            self.log_message(message)
+            self.status_var.set(message[:50] + "..." if len(message) > 50 else message)
+            
+        self.after(0, update)
 
     def stop_parsing(self):
         """Остановка парсинга"""
+        if not self.is_parsing:
+            messagebox.showinfo("Информация", "Парсинг не выполняется")
+            return
+            
+        # TODO:обавить логику остановки парсера
+        self.is_parsing = False
         self.status_var.set("Парсинг остановлен")
         self.log_message("Парсинг остановлен пользователем")
         
@@ -372,8 +400,10 @@ class MainApplication(ttk.Frame):
         4. Нажмите "Запустить парсинг"
         
         Примечания:
-            • Для работы парсера требуется стабильное интернет-соединение
-            • Можно переключаться между режимами в процессе работы
+            • Парсинг выполняется асинхронно - интерфейс не блокируется
+            • Результаты сохраняются в папке 2gis_parse_results/data.xlsx
+            • Для работы требуется установленный Playwright
+            • Можно остановить парсинг в любой момент
         """
         messagebox.showinfo("Руководство пользователя", about_text, icon="question")
 
@@ -381,24 +411,36 @@ class MainApplication(ttk.Frame):
         """Обработчик кнопки 'О программе'"""
         about_text = """
         Парсер данных 2ГИС
-        Версия 2.0.2
+        Версия 3.0.0
         
-        Два режима работы в одном интерфейсе:
+        Режимы работы:
         1. Парсер по ключу - поиск организаций по ключевому слову и городу
         2. Парсер по URL - парсинг конкретной страницы поиска 2ГИС
+        
+        Возможности:
+        • Асинхронный парсинг с Playwright
+        • Сохранение данных в Excel
+        • Автоматическая генерация URL
+        • Поддержка светлой и темной темы
         
         https://github.com/itgeroy/TwoGisParser
         
         Используемые технологии:
         • Python 3.11+
-        • playwright для веб-скрапинга
+        • Playwright для веб-скрапинга
         • tkinter для графического интерфейса
         • sv_ttk для современных стилей
+        • Openpyxl для работы с Excel
         """
         messagebox.showinfo("О программе", about_text)
 
     def btn_exit(self):
         """Выход из приложения"""
+        if self.is_parsing:
+            if not messagebox.askyesno("Предупреждение", 
+                                      "Парсинг выполняется. Вы уверены, что хотите выйти?"):
+                return
+        
         if messagebox.askyesno("Выход", "Вы уверены, что хотите выйти?"):
             self.parent.quit()
 
@@ -410,11 +452,15 @@ class MainApplication(ttk.Frame):
                                    relief=tk.SUNKEN, padding=(10, 5))
         self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
 
+
 def main():
     """Точка входа в приложение"""
     root = tk.Tk()
     app = MainApplication(root)
     root.mainloop()
 
+
 if __name__ == "__main__":
+    # Установите Playwright перед первым запуском:
+    # python -m playwright install chromium
     main()
