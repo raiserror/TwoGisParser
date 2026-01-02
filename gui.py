@@ -7,7 +7,7 @@ import re
 from tkinter import ttk, messagebox
 from googletrans import Translator
 from MainTwoGis import TwoGisMapParse
-
+from async_runner import AsyncParserRunner
 
 class MainApplication(ttk.Frame):
     def __init__(self, parent, *args, **kwargs):
@@ -352,17 +352,17 @@ class MainApplication(ttk.Frame):
 
     def run_async_parsing(self, parser_instance):
         """Запуск асинхронного парсинга в отдельном потоке"""
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
         try:
-            loop.run_until_complete(
-                parser_instance.parse_main(update_callback=self.update_gui_from_thread)
+            # Создаем и запускаем runner
+            runner = AsyncParserRunner(
+                parser_instance, 
+                update_callback=self.update_gui_from_thread
             )
-        except:
-            self.update_gui_from_thread("Парсинг завершен")
+            self.parser_thread = runner.start()
+            
+        except Exception as e:
+            self.update_gui_from_thread(f"Ошибка запуска: {str(e)}")
             self.is_parsing = False
-            loop.close()
             
     def update_gui_from_thread(self, message):
         """Обновление GUI из потока"""

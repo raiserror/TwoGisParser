@@ -1,7 +1,5 @@
 import tkinter as tk
-
 from gui import MainApplication
-
 
 def main():  # Точка входа в приложение
     root = tk.Tk()

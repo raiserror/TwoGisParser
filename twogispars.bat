@@ -11,8 +11,11 @@ echo Устанавливаем зависимости...
 pip install sv-ttk
 pip install pyinstaller
 pip install googletrans
+pip uninstall playwright -y
 pip install playwright
 pip install openpyxl
+pip install asyncio
+playwright install chromium
 
 echo.
 echo Собираем EXE...
@@ -22,7 +25,8 @@ pyinstaller --clean --noconfirm ^
 --windowed ^
 --icon="static/icon.ico" ^
 --add-data="static;static" ^
---hidden-import="sv_ttk" ^
+--add-data="%LOCALAPPDATA%\ms-playwright;ms-playwright" ^
+--runtime-hook=playwright_runtime_hook.py ^
 gui_main.py
 
 echo.
